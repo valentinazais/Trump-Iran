@@ -323,28 +323,5 @@ with right:
             """, unsafe_allow_html=True)
     else:
         st.warning("News feed fetch failed.")
-
-    st.markdown("---")
-    st.markdown("### MATHEMATICAL INDICATORS")
-    st.markdown("""
-    <div style="font-size:0.8rem;color:#c9d1d9;line-height:1.6;background:#161b22;padding:12px;border:1px solid #30363d;border-radius:4px;">
-    <strong>Cumulative Distribution Function (CDF)</strong><br>
-    Represents the total market probability of a strike occurring on or before date \( t \). Direct extraction from cumulative contract pricing.<br>
-    \( F(t) = P(T \le t) \)<br><br>
-
-    <strong>Probability Mass Function (PMF)</strong><br>
-    Isolates the probability of the strike occurring strictly within the interval between \( t_{i-1} \) and \( t_i \). Calculated via sequential price deltas.<br>
-    \( f(t_i) = F(t_i) - F(t_{i-1}) \)<br><br>
-
-    <strong>Survival Function</strong><br>
-    Calculates the probability that no strike has occurred by date \( t \). Serves as the inverse conceptual metric to CDF.<br>
-    \( S(t) = 1 - F(t) \)<br><br>
-
-    <strong>Hazard Rate</strong><br>
-    Defines the conditional probability of a strike occurring exactly at time \( t_i \), given that no strike has occurred prior to \( t_i \). Essential for identifying acute risk spikes independent of cumulative buildup.<br>
-    \( h(t_i) = \frac{f(t_i)}{S(t_{i-1})} \)
-    </div>
-    """, unsafe_allow_html=True)
-
 time.sleep(25)
 st.rerun()
