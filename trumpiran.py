@@ -193,7 +193,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1>US STRIKES IRAN — KINETIC RISK TERMINAL</h1>", unsafe_allow_html=True)
+st.markdown("<h1>US STRIKES IRAN LIVE DASHBOARD</h1>", unsafe_allow_html=True)
 
 if meta.get("error"):
     st.error(f"API fetch error: {meta['error']}")
