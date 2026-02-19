@@ -8,7 +8,7 @@ import time
 import json
 
 st.set_page_config(
-    page_title="US-Iran Strike Probability Terminal",
+    page_title="US-Iran Strike Probability Dashboard",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
