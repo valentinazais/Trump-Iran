@@ -3,7 +3,7 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 import feedparser
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import json
 
@@ -17,25 +17,23 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
     .block-container {padding-top:1rem;padding-bottom:0rem;max-width:1400px;}
-    html, body, [class*="css"] {font-family:'JetBrains Mono',monospace;background-color:#0a0a0a;color:#c0c0c0;}
-    h1,h2,h3 {font-family:'JetBrains Mono',monospace !important;color:#ff2d2d !important;}
-    .stMetric label {color:#888 !important;font-size:0.75rem !important;}
-    .stMetric [data-testid="stMetricValue"] {color:#ff4b4b !important;font-size:1.5rem !important;}
-    .stMetric [data-testid="stMetricDelta"] {color:#666 !important;}
-    div[data-testid="stExpander"] {border:1px solid #222;border-radius:4px;}
-    .news-item {border-left:3px solid #ff2d2d;padding:6px 12px;margin:8px 0;background:#111;}
-    .status-bar {background:#111;border:1px solid #222;padding:8px 16px;border-radius:4px;margin-bottom:16px;font-size:0.8rem;color:#888;}
-    .risk-high {color:#ff2d2d;font-weight:bold;font-size:1.2rem;}
-    .risk-med {color:#ffa500;font-weight:bold;font-size:1.2rem;}
-    .risk-low {color:#00ff88;font-weight:bold;font-size:1.2rem;}
+    html, body, [class*="css"] {font-family:'JetBrains Mono',monospace;background-color:#0d1117;color:#c9d1d9;}
+    h1,h2,h3 {font-family:'JetBrains Mono',monospace !important;color:#58a6ff !important;}
+    .stMetric label {color:#8b949e !important;font-size:0.75rem !important;}
+    .stMetric [data-testid="stMetricValue"] {color:#c9d1d9 !important;font-size:1.5rem !important;}
+    .stMetric [data-testid="stMetricDelta"] {color:#8b949e !important;}
+    div[data-testid="stExpander"] {border:1px solid #30363d;border-radius:4px;}
+    .news-item {border-left:3px solid #58a6ff;padding:6px 12px;margin:8px 0;background:#161b22;}
+    .status-bar {background:#161b22;border:1px solid #30363d;padding:8px 16px;border-radius:4px;margin-bottom:16px;font-size:0.8rem;color:#8b949e;}
+    .risk-high {color:#f85149;font-weight:bold;font-size:1.2rem;}
+    .risk-med {color:#d29922;font-weight:bold;font-size:1.2rem;}
+    .risk-low {color:#2ea043;font-weight:bold;font-size:1.2rem;}
 </style>
 """, unsafe_allow_html=True)
 
 GAMMA_API = "https://gamma-api.polymarket.com/events"
-CLOB_API_HISTORY = "https://clob.polymarket.com/prices-history"
 NEWS_RSS = "https://news.google.com/rss/search?q=Trump+Iran+military+strike&hl=en-US&gl=US&ceid=US:en"
 DEADLINE = datetime(2026, 6, 30, 23, 59, 59)
-
 
 @st.cache_data(ttl=25)
 def fetch_polymarket():
@@ -117,43 +115,19 @@ def fetch_polymarket():
                 "label": title,
                 "date_obj": date_obj if date_obj else datetime(2099, 1, 1),
                 "prob": prob,
-                "prob_pct": round(prob * 100, 2),
                 "volume": vol,
                 "liquidity": liq,
                 "best_bid": best_bid,
                 "best_ask": best_ask,
                 "spread": spread,
-                "active": m.get("active", False),
                 "token_id": token_id
             })
 
         df = pd.DataFrame(records)
-        if not df.empty:
-            df = df.sort_values("date_obj").reset_index(drop=True)
         return df, meta
 
     except Exception as e:
         return pd.DataFrame(), {"error": str(e)}
-
-@st.cache_data(ttl=300)
-def fetch_history(token_ids, interval="1w"):
-    history_data = []
-    for t_id in token_ids:
-        if not t_id:
-            continue
-        try:
-            res = requests.get(CLOB_API_HISTORY, params={"market": t_id, "interval": interval}, timeout=5)
-            if res.status_code == 200:
-                data = res.json()
-                for pt in data.get("history", []):
-                    history_data.append({
-                        "token_id": t_id,
-                        "time": datetime.utcfromtimestamp(pt["t"]),
-                        "price": float(pt["p"]) * 100
-                    })
-        except Exception:
-            continue
-    return pd.DataFrame(history_data)
 
 @st.cache_data(ttl=120)
 def fetch_news():
@@ -172,26 +146,41 @@ def fetch_news():
     except Exception:
         return []
 
-def compute_hazard_rate(df):
-    if df.empty or len(df) < 2:
-        return df
-    rates = [0]
+def compute_distributions(df):
+    if df.empty: return df
+    df = df.sort_values("date_obj").reset_index(drop=True)
+    
+    # CDF (Cumulative Distribution Function)
+    df["cdf"] = df["prob"]
+    df["cdf_pct"] = df["cdf"] * 100
+
+    # PMF (Probability Mass Function / Discrete PDF)
+    pmf = [df["cdf"].iloc[0]]
     for i in range(1, len(df)):
-        p_prev = df.iloc[i - 1]["prob"]
-        p_curr = df.iloc[i]["prob"]
-        delta_p = p_curr - p_prev
-        survival = 1 - p_prev
-        if survival > 0.001:
-            h = delta_p / survival
+        val = df["cdf"].iloc[i] - df["cdf"].iloc[i-1]
+        pmf.append(max(0, val))
+    df["pmf"] = pmf
+    df["pmf_pct"] = df["pmf"] * 100
+
+    # Survival Function (Inverse CDF conceptually for time-to-event)
+    df["survival"] = 1.0 - df["cdf"]
+    df["survival_pct"] = df["survival"] * 100
+
+    # Hazard Rate
+    hazard = [df["pmf"].iloc[0]]
+    for i in range(1, len(df)):
+        surv_prev = df["survival"].iloc[i-1]
+        if surv_prev > 0.001:
+            hazard.append(df["pmf"].iloc[i] / surv_prev)
         else:
-            h = 0
-        rates.append(round(h * 100, 3))
-    df = df.copy()
-    df["hazard_pct"] = rates
+            hazard.append(0)
+    df["hazard"] = hazard
+    df["hazard_pct"] = df["hazard"] * 100
+
     return df
 
-
-df, meta = fetch_polymarket()
+df_raw, meta = fetch_polymarket()
+df = compute_distributions(df_raw)
 news = fetch_news()
 
 now = datetime.utcnow()
@@ -206,13 +195,13 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("# US STRIKES IRAN — PROBABILITY TERMINAL")
+st.markdown("# US STRIKES IRAN — KINETIC RISK TERMINAL")
 
 if meta.get("error"):
     st.error(f"API fetch error: {meta['error']}")
 
 if not df.empty:
-    max_prob = df["prob_pct"].max()
+    max_prob = df["cdf_pct"].max()
     total_vol = meta.get("volume", df["volume"].sum())
     total_liq = meta.get("liquidity", df["liquidity"].sum())
     avg_spread = df["spread"].mean()
@@ -225,7 +214,7 @@ if not df.empty:
         risk_class, risk_label = "risk-low", "LOW"
 
     m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Peak CDF Probability", f"{max_prob:.1f}%")
+    m1.metric("Peak Cumulative Risk", f"{max_prob:.1f}%")
     m2.metric("Total Volume", f"${total_vol:,.0f}")
     m3.metric("Total Liquidity", f"${total_liq:,.0f}")
     m4.metric("Avg Bid-Ask Spread", f"{avg_spread:.4f}")
@@ -237,111 +226,82 @@ left, right = st.columns([5, 2])
 
 with left:
     if not df.empty:
-        col_title, col_sel = st.columns([4, 1])
-        col_title.markdown("### Historical Probability Tracking")
-        interval_choice = col_sel.selectbox("Timeframe", ["1d", "1w", "max"], index=1, label_visibility="collapsed")
-        
-        top_tokens = df.nlargest(4, 'prob_pct')['token_id'].tolist()
-        df_hist = fetch_history(top_tokens, interval_choice)
-        
-        fig_hist = go.Figure()
-        if not df_hist.empty:
-            for t_id in top_tokens:
-                contract_label = df[df['token_id'] == t_id]['label'].values[0]
-                contract_data = df_hist[df_hist['token_id'] == t_id]
-                fig_hist.add_trace(go.Scatter(
-                    x=contract_data['time'],
-                    y=contract_data['price'],
-                    mode='lines',
-                    name=contract_label,
-                    hovertemplate="%{x}<br>Prob: %{y:.1f}%<extra></extra>"
-                ))
-        fig_hist.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#0a0a0a",
-            plot_bgcolor="#0a0a0a",
-            yaxis=dict(title="Probability (%)", gridcolor="#1a1a1a"),
-            xaxis=dict(title="", gridcolor="#1a1a1a"),
-            margin=dict(l=40, r=20, t=10, b=30),
-            height=320,
-            font=dict(family="JetBrains Mono", size=11, color="#888"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        # PMF Plot
+        st.markdown("### Probability Mass Function — Discrete Density")
+        fig_pmf = go.Figure()
+        fig_pmf.add_trace(go.Bar(
+            x=df["label"], y=df["pmf_pct"],
+            marker_color="#1f6feb",
+            hovertemplate="%{x}<br>PMF: %{y:.2f}%<extra></extra>"
+        ))
+        fig_pmf.update_layout(
+            template="plotly_dark", paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+            yaxis=dict(title="Probability (%)", gridcolor="#30363d"),
+            xaxis=dict(title="", gridcolor="#30363d", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=40), height=260,
+            font=dict(family="JetBrains Mono", size=11, color="#8b949e")
         )
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_pmf, use_container_width=True)
 
-        st.markdown("### Cumulative Distribution — P(Strike ≤ t)")
+        # CDF Plot
+        st.markdown("### Cumulative Distribution Function")
         fig_cdf = go.Figure()
         fig_cdf.add_trace(go.Scatter(
-            x=df["label"],
-            y=df["prob_pct"],
-            mode="lines+markers",
-            fill="tozeroy",
-            line=dict(color="#ff2d2d", width=2),
-            marker=dict(size=8, color="#ff2d2d"),
-            fillcolor="rgba(255,45,45,0.1)",
-            name="P(Strike ≤ t)",
-            hovertemplate="%{x}<br>Probability: %{y:.2f}%<extra></extra>"
+            x=df["label"], y=df["cdf_pct"], mode="lines+markers",
+            line=dict(color="#58a6ff", width=2), marker=dict(size=6),
+            fill="tozeroy", fillcolor="rgba(88,166,255,0.1)",
+            hovertemplate="%{x}<br>CDF: %{y:.2f}%<extra></extra>"
         ))
         fig_cdf.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="#0a0a0a",
-            plot_bgcolor="#0a0a0a",
-            yaxis=dict(title="Cumulative Probability (%)", range=[0, max(100, max_prob + 15)], gridcolor="#1a1a1a"),
-            xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
-            margin=dict(l=40, r=20, t=10, b=80),
-            height=320,
-            font=dict(family="JetBrains Mono", size=11, color="#888"),
+            template="plotly_dark", paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+            yaxis=dict(title="Probability (%)", gridcolor="#30363d", range=[0, max(100, max_prob + 10)]),
+            xaxis=dict(title="", gridcolor="#30363d", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=40), height=260,
+            font=dict(family="JetBrains Mono", size=11, color="#8b949e")
         )
         st.plotly_chart(fig_cdf, use_container_width=True)
 
-        col_vol, col_haz = st.columns(2)
-        with col_vol:
-            st.markdown("### Market Volume by Target Date")
-            fig_vol = go.Figure()
-            fig_vol.add_trace(go.Bar(
-                x=df["label"],
-                y=df["volume"],
-                marker_color="#ffa500",
-                hovertemplate="%{x}<br>Volume: $%{y:,.0f}<extra></extra>"
+        col_surv, col_haz = st.columns(2)
+        with col_surv:
+            # Survival Function (Inverse CDF conceptually for time tracking)
+            st.markdown("### Survival Function")
+            fig_surv = go.Figure()
+            fig_surv.add_trace(go.Scatter(
+                x=df["label"], y=df["survival_pct"], mode="lines+markers",
+                line=dict(color="#8b949e", width=2), marker=dict(size=6),
+                hovertemplate="%{x}<br>Survival: %{y:.2f}%<extra></extra>"
             ))
-            fig_vol.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="#0a0a0a",
-                plot_bgcolor="#0a0a0a",
-                yaxis=dict(title="Volume ($)", gridcolor="#1a1a1a"),
-                xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
-                margin=dict(l=30, r=10, t=10, b=60),
-                height=260,
-                font=dict(family="JetBrains Mono", size=11, color="#888"),
+            fig_surv.update_layout(
+                template="plotly_dark", paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                yaxis=dict(title="Probability (%)", gridcolor="#30363d", range=[0, 105]),
+                xaxis=dict(title="", gridcolor="#30363d", tickangle=-45),
+                margin=dict(l=40, r=20, t=10, b=40), height=240,
+                font=dict(family="JetBrains Mono", size=11, color="#8b949e")
             )
-            st.plotly_chart(fig_vol, use_container_width=True)
+            st.plotly_chart(fig_surv, use_container_width=True)
 
         with col_haz:
-            df_h = compute_hazard_rate(df)
-            st.markdown("### Hazard Rate — h(t)")
-            fig_hazard = go.Figure()
-            colors = ["#ff2d2d" if v > 0 else "#00ff88" for v in df_h["hazard_pct"]]
-            fig_hazard.add_trace(go.Bar(
-                x=df_h["label"],
-                y=df_h["hazard_pct"],
-                marker_color=colors,
-                hovertemplate="%{x}<br>h(t): %{y:.3f}%<extra></extra>"
+            # Hazard Rate
+            st.markdown("### Hazard Rate")
+            fig_haz = go.Figure()
+            fig_haz.add_trace(go.Bar(
+                x=df["label"], y=df["hazard_pct"],
+                marker_color="#d29922",
+                hovertemplate="%{x}<br>Hazard: %{y:.2f}%<extra></extra>"
             ))
-            fig_hazard.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="#0a0a0a",
-                plot_bgcolor="#0a0a0a",
-                yaxis=dict(title="Hazard Rate (%)", gridcolor="#1a1a1a"),
-                xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
-                margin=dict(l=30, r=10, t=10, b=60),
-                height=260,
-                font=dict(family="JetBrains Mono", size=11, color="#888"),
+            fig_haz.update_layout(
+                template="plotly_dark", paper_bgcolor="#0d1117", plot_bgcolor="#0d1117",
+                yaxis=dict(title="Rate (%)", gridcolor="#30363d"),
+                xaxis=dict(title="", gridcolor="#30363d", tickangle=-45),
+                margin=dict(l=40, r=20, t=10, b=40), height=240,
+                font=dict(family="JetBrains Mono", size=11, color="#8b949e")
             )
-            st.plotly_chart(fig_hazard, use_container_width=True)
+            st.plotly_chart(fig_haz, use_container_width=True)
 
-        with st.expander("RAW MARKET DATA TABLE"):
-            display_df = df[["label", "prob_pct", "volume", "liquidity", "spread"]].copy()
-            display_df.columns = ["Contract", "Prob %", "Volume $", "Liquidity $", "Spread"]
+        with st.expander("RAW MARKET DATA & METRICS TABLE"):
+            display_df = df[["label", "cdf_pct", "pmf_pct", "survival_pct", "hazard_pct", "volume", "spread"]].copy()
+            display_df.columns = ["Target Date", "CDF (%)", "PMF (%)", "Survival (%)", "Hazard (%)", "Volume ($)", "Spread"]
+            display_df = display_df.round(3)
             st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     else:
@@ -355,25 +315,34 @@ with right:
             source = f" — {item['source']}" if item['source'] else ""
             st.markdown(f"""
             <div class="news-item">
-                <a href="{item['link']}" target="_blank" style="color:#ff4b4b;text-decoration:none;font-size:0.85rem;">
+                <a href="{item['link']}" target="_blank" style="color:#58a6ff;text-decoration:none;font-size:0.85rem;">
                     {item['title']}
                 </a>
-                <br><span style="color:#555;font-size:0.7rem;">{item['published']}{source}</span>
+                <br><span style="color:#8b949e;font-size:0.7rem;">{item['published']}{source}</span>
             </div>
             """, unsafe_allow_html=True)
     else:
         st.warning("News feed fetch failed.")
 
     st.markdown("---")
-    st.markdown("### ANALYTICS INSIGHTS")
+    st.markdown("### MATHEMATICAL INDICATORS")
     st.markdown("""
-    <div style="font-size:0.8rem;color:#999;line-height:1.6;background:#111;padding:12px;border:1px solid #222;border-radius:4px;">
-    <strong style="color:#fff;">Historical Trend</strong><br>
-    Identifies momentum behind specific contract execution dates. Sudden convergence across dates indicates systemic escalation rather than a specific targeted timeline.<br><br>
-    <strong style="color:#fff;">Volume Allocation</strong><br>
-    Capital clusters around highest-conviction dates. Contracts with extreme probability but low volume signify retail panic. High volume signifies institutional or informed positioning.<br><br>
-    <strong style="color:#fff;">Hazard Identification</strong><br>
-    Elevated instantaneous hazard rate isolated to a specific forward-date flags it as the primary focal point of the prediction market consensus for the kinetic event.
+    <div style="font-size:0.8rem;color:#c9d1d9;line-height:1.6;background:#161b22;padding:12px;border:1px solid #30363d;border-radius:4px;">
+    <strong>Cumulative Distribution Function (CDF)</strong><br>
+    Represents the total market probability of a strike occurring on or before date \( t \). Direct extraction from cumulative contract pricing.<br>
+    \( F(t) = P(T \le t) \)<br><br>
+
+    <strong>Probability Mass Function (PMF)</strong><br>
+    Isolates the probability of the strike occurring strictly within the interval between \( t_{i-1} \) and \( t_i \). Calculated via sequential price deltas.<br>
+    \( f(t_i) = F(t_i) - F(t_{i-1}) \)<br><br>
+
+    <strong>Survival Function</strong><br>
+    Calculates the probability that no strike has occurred by date \( t \). Serves as the inverse conceptual metric to CDF.<br>
+    \( S(t) = 1 - F(t) \)<br><br>
+
+    <strong>Hazard Rate</strong><br>
+    Defines the conditional probability of a strike occurring exactly at time \( t_i \), given that no strike has occurred prior to \( t_i \). Essential for identifying acute risk spikes independent of cumulative buildup.<br>
+    \( h(t_i) = \frac{f(t_i)}{S(t_{i-1})} \)
     </div>
     """, unsafe_allow_html=True)
 
