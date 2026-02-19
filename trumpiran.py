@@ -1,139 +1,379 @@
 import streamlit as st
 import requests
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 import feedparser
-from datetime import datetime
-from streamlit_autorefresh import st_autorefresh
+from datetime import datetime, timedelta
+import time
+import json
 
-# Configure Dashboard
-st.set_page_config(page_title="Terminal | US-Iran Strike Probability", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="US-Iran Strike Probability Terminal",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# Inject minimal CSS
 st.markdown("""
-    <style>
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    h1 { font-family: monospace; color: #ff4b4b; }
-    </style>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    .block-container {padding-top:1rem;padding-bottom:0rem;max-width:1400px;}
+    html, body, [class*="css"] {font-family:'JetBrains Mono',monospace;background-color:#0a0a0a;color:#c0c0c0;}
+    h1,h2,h3 {font-family:'JetBrains Mono',monospace !important;color:#ff2d2d !important;}
+    .stMetric label {color:#888 !important;font-size:0.75rem !important;}
+    .stMetric [data-testid="stMetricValue"] {color:#ff4b4b !important;font-size:1.5rem !important;}
+    .stMetric [data-testid="stMetricDelta"] {color:#666 !important;}
+    div[data-testid="stExpander"] {border:1px solid #222;border-radius:4px;}
+    .news-item {border-left:3px solid #ff2d2d;padding:6px 12px;margin:8px 0;background:#111;}
+    .status-bar {background:#111;border:1px solid #222;padding:8px 16px;border-radius:4px;margin-bottom:16px;font-size:0.8rem;color:#888;}
+    .risk-high {color:#ff2d2d;font-weight:bold;font-size:1.2rem;}
+    .risk-med {color:#ffa500;font-weight:bold;font-size:1.2rem;}
+    .risk-low {color:#00ff88;font-weight:bold;font-size:1.2rem;}
+</style>
 """, unsafe_allow_html=True)
 
-# Auto-refresh every 30 seconds
-st_autorefresh(interval=30000, key="data_refresh")
-
-# Constants
 GAMMA_API = "https://gamma-api.polymarket.com/events"
-SLUG = "us-strikes-iran-by"
 NEWS_RSS = "https://news.google.com/rss/search?q=Trump+Iran+military+strike&hl=en-US&gl=US&ceid=US:en"
+DEADLINE = datetime(2025, 6, 30, 23, 59, 59)
 
-@st.cache_data(ttl=30)
-def fetch_market_data():
-    """Extract live order book probabilities."""
-    res = requests.get(f"{GAMMA_API}?slug={SLUG}")
-    if res.status_code != 200:
-        return pd.DataFrame()
-    
-    data = res.json()
-    if not data:
-        return pd.DataFrame()
-    
-    markets = data[0].get("markets", [])
-    records = []
-    
-    for m in markets:
-        if m.get("closed") or not m.get("active"):
-            continue
-            
-        group_item_title = m.get("groupItemTitle", "")
-        # Filter for dates leading up to Jun 30, prioritize Feb dates
-        if not group_item_title:
-            continue
-            
-        try:
-            # Parse prices
-            prices = eval(m.get("outcomePrices", "[]"))
-            outcomes = eval(m.get("outcomes", "[]"))
-            
-            if "Yes" in outcomes:
-                idx = outcomes.index("Yes")
-                prob = float(prices[idx])
-                
-                # Attempt to parse date for sorting
+
+@st.cache_data(ttl=25)
+def fetch_polymarket():
+    try:
+        res = requests.get(GAMMA_API, params={"slug": "us-strikes-iran-by"}, timeout=10)
+        if res.status_code != 200:
+            return pd.DataFrame(), {}
+        data = res.json()
+        if not data:
+            return pd.DataFrame(), {}
+
+        event = data[0]
+        meta = {
+            "title": event.get("title", ""),
+            "liquidity": float(event.get("liquidity", 0)),
+            "volume": float(event.get("volume", 0)),
+            "startDate": event.get("startDate", ""),
+        }
+
+        markets = event.get("markets", [])
+        records = []
+
+        for m in markets:
+            if m.get("closed"):
+                continue
+
+            title = m.get("groupItemTitle", "") or m.get("question", "")
+            if not title:
+                continue
+
+            try:
+                outcomes = json.loads(m.get("outcomes", "[]"))
+                prices = json.loads(m.get("outcomePrices", "[]"))
+            except (json.JSONDecodeError, TypeError):
                 try:
-                    date_obj = datetime.strptime(f"{group_item_title} 2026", "%b %d %Y")
+                    outcomes = eval(m.get("outcomes", "[]"))
+                    prices = eval(m.get("outcomePrices", "[]"))
+                except Exception:
+                    continue
+
+            if "Yes" not in outcomes:
+                continue
+
+            idx = outcomes.index("Yes")
+            prob = float(prices[idx])
+
+            date_obj = None
+            for fmt in ["%b %d", "%B %d", "%b %d, %Y", "%B %d, %Y"]:
+                try:
+                    parsed = datetime.strptime(title.strip(), fmt)
+                    if parsed.year == 1900:
+                        parsed = parsed.replace(year=2025)
+                    date_obj = parsed
+                    break
                 except ValueError:
-                    date_obj = datetime.max
-                    
-                records.append({
-                    "Date": group_item_title,
-                    "Probability": prob,
-                    "Sort_Date": date_obj,
-                    "Volume": float(m.get("volume", 0))
-                })
-        except Exception:
-            continue
-            
-    df = pd.DataFrame(records)
-    if not df.empty:
-        df = df.sort_values("Sort_Date").drop(columns=["Sort_Date"])
-        # Format for CDF \( P(T \le t) \)
-        df["CDF_Percent"] = df["Probability"] * 100
+                    continue
+
+            if date_obj is None:
+                if "feb" in title.lower():
+                    day = ''.join(filter(str.isdigit, title))
+                    if day:
+                        date_obj = datetime(2025, 2, int(day))
+                elif "mar" in title.lower():
+                    day = ''.join(filter(str.isdigit, title))
+                    if day:
+                        date_obj = datetime(2025, 3, int(day))
+                elif "apr" in title.lower():
+                    day = ''.join(filter(str.isdigit, title))
+                    if day:
+                        date_obj = datetime(2025, 4, int(day))
+
+            vol = float(m.get("volume", 0))
+            liq = float(m.get("liquidity", 0))
+            best_bid = float(m.get("bestBid", 0))
+            best_ask = float(m.get("bestAsk", 0))
+            spread = best_ask - best_bid if best_ask and best_bid else 0
+
+            records.append({
+                "label": title,
+                "date_obj": date_obj if date_obj else datetime(2099, 1, 1),
+                "prob": prob,
+                "prob_pct": round(prob * 100, 2),
+                "volume": vol,
+                "liquidity": liq,
+                "best_bid": best_bid,
+                "best_ask": best_ask,
+                "spread": spread,
+                "active": m.get("active", False),
+            })
+
+        df = pd.DataFrame(records)
+        if not df.empty:
+            df = df.sort_values("date_obj").reset_index(drop=True)
+        return df, meta
+
+    except Exception as e:
+        return pd.DataFrame(), {"error": str(e)}
+
+
+@st.cache_data(ttl=120)
+def fetch_news():
+    try:
+        feed = feedparser.parse(NEWS_RSS)
+        items = []
+        for entry in feed.entries[:12]:
+            pub = entry.get("published", "")
+            items.append({
+                "title": entry.get("title", ""),
+                "link": entry.get("link", ""),
+                "published": pub,
+                "source": entry.get("source", {}).get("title", ""),
+            })
+        return items
+    except Exception:
+        return []
+
+
+def compute_hazard_rate(df):
+    if df.empty or len(df) < 2:
+        return df
+    rates = [0]
+    for i in range(1, len(df)):
+        p_prev = df.iloc[i - 1]["prob"]
+        p_curr = df.iloc[i]["prob"]
+        delta_p = p_curr - p_prev
+        survival = 1 - p_prev
+        if survival > 0.001:
+            h = delta_p / survival
+        else:
+            h = 0
+        rates.append(round(h * 100, 3))
+    df = df.copy()
+    df["hazard_pct"] = rates
     return df
 
-@st.cache_data(ttl=300)
-def fetch_news():
-    """Scrape RSS feed for geopolitical triggers."""
-    feed = feedparser.parse(NEWS_RSS)
-    return feed.entries[:8]
 
-# Data Fetch
-df_markets = fetch_market_data()
-news_items = fetch_news()
+# --- FETCH DATA ---
+df, meta = fetch_polymarket()
+news = fetch_news()
 
-# UI Layout
-st.title("TACTICAL DASHBOARD: US STRIKES IRAN")
+# --- HEADER ---
+now = datetime.utcnow()
+days_left = (DEADLINE - now).days
 
-col1, col2 = st.columns([2, 1])
+st.markdown(f"""
+<div class="status-bar">
+    SYSTEM TIME (UTC): {now.strftime('%Y-%m-%d %H:%M:%S')} &nbsp;|&nbsp;
+    MARKET DEADLINE: {DEADLINE.strftime('%Y-%m-%d')} &nbsp;|&nbsp;
+    T-MINUS: {days_left} DAYS &nbsp;|&nbsp;
+    DATA REFRESH: 25s
+</div>
+""", unsafe_allow_html=True)
 
-with col1:
-    st.subheader("Cumulative Distribution Function \( P(T \le t) \)")
-    if not df_markets.empty:
-        # Plotly CDF Curve
-        fig = px.area(
-            df_markets, 
-            x="Date", 
-            y="CDF_Percent", 
-            markers=True,
-            title="Probability of Strike by Date",
-            labels={"CDF_Percent": "Cumulative Probability (%)", "Date": "Target Date"},
-            color_discrete_sequence=["#ff4b4b"]
-        )
-        fig.update_layout(
-            xaxis_title="",
-            yaxis_title="Probability (%)",
-            yaxis_range=[0, max(100, df_markets["CDF_Percent"].max() + 10)],
-            template="plotly_dark",
-            margin=dict(l=0, r=0, t=40, b=0)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Metrics Row
-        st.subheader("Live Market Pricing")
-        cols = st.columns(len(df_markets.head(4)))
-        for i, row in df_markets.head(4).iterrows():
-            cols[i].metric(
-                label=row['Date'], 
-                value=f"{row['CDF_Percent']:.1f}%",
-                delta=f"Vol: ${row['Volume']:,.0f}",
-                delta_color="off"
-            )
+st.markdown("# US STRIKES IRAN — PROBABILITY TERMINAL")
+
+if meta.get("error"):
+    st.error(f"API fetch error: {meta['error']}")
+
+# --- TOP METRICS ---
+if not df.empty:
+    max_prob = df["prob_pct"].max()
+    total_vol = meta.get("volume", df["volume"].sum())
+    total_liq = meta.get("liquidity", df["liquidity"].sum())
+    avg_spread = df["spread"].mean()
+
+    if max_prob >= 50:
+        risk_class = "risk-high"
+        risk_label = "HIGH"
+    elif max_prob >= 20:
+        risk_class = "risk-med"
+        risk_label = "ELEVATED"
     else:
-        st.error("API Error: Polymarket Gamma unvailable.")
+        risk_class = "risk-low"
+        risk_label = "LOW"
 
-with col2:
-    st.subheader("Intelligence Feed")
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Peak CDF Probability", f"{max_prob:.1f}%")
+    m2.metric("Total Volume", f"${total_vol:,.0f}")
+    m3.metric("Total Liquidity", f"${total_liq:,.0f}")
+    m4.metric("Avg Bid-Ask Spread", f"{avg_spread:.4f}")
+    m5.markdown(f"**Threat Level**<br><span class='{risk_class}'>{risk_label}</span>", unsafe_allow_html=True)
+
     st.markdown("---")
-    for item in news_items:
-        pub_date = item.published if hasattr(item, 'published') else "Recent"
-        st.markdown(f"**[{item.title}]({item.link})**")
-        st.caption(f"Time: {pub_date}")
-        st.markdown("<br>", unsafe_allow_html=True)
+
+# --- MAIN LAYOUT ---
+left, right = st.columns([5, 2])
+
+with left:
+    if not df.empty:
+        # CDF CHART
+        st.markdown("### Cumulative Distribution — P(Strike ≤ t)")
+        fig_cdf = go.Figure()
+        fig_cdf.add_trace(go.Scatter(
+            x=df["label"],
+            y=df["prob_pct"],
+            mode="lines+markers",
+            fill="tozeroy",
+            line=dict(color="#ff2d2d", width=2),
+            marker=dict(size=8, color="#ff2d2d"),
+            fillcolor="rgba(255,45,45,0.1)",
+            name="P(Strike ≤ t)",
+            hovertemplate="%{x}<br>Probability: %{y:.2f}%<extra></extra>"
+        ))
+        fig_cdf.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#0a0a0a",
+            plot_bgcolor="#0a0a0a",
+            yaxis=dict(title="Cumulative Probability (%)", range=[0, max(100, max_prob + 15)], gridcolor="#1a1a1a"),
+            xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=80),
+            height=420,
+            font=dict(family="JetBrains Mono", size=11, color="#888"),
+        )
+        st.plotly_chart(fig_cdf, use_container_width=True)
+
+        # HAZARD RATE
+        df_h = compute_hazard_rate(df)
+        st.markdown("### Instantaneous Hazard Rate — h(t)")
+        st.caption("Conditional probability of strike in interval [t, t+dt] given no strike before t.")
+        fig_hazard = go.Figure()
+        colors = ["#ff2d2d" if v > 0 else "#00ff88" for v in df_h["hazard_pct"]]
+        fig_hazard.add_trace(go.Bar(
+            x=df_h["label"],
+            y=df_h["hazard_pct"],
+            marker_color=colors,
+            name="Hazard Rate",
+            hovertemplate="%{x}<br>h(t): %{y:.3f}%<extra></extra>"
+        ))
+        fig_hazard.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#0a0a0a",
+            plot_bgcolor="#0a0a0a",
+            yaxis=dict(title="Hazard Rate (%)", gridcolor="#1a1a1a"),
+            xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=80),
+            height=300,
+            font=dict(family="JetBrains Mono", size=11, color="#888"),
+        )
+        st.plotly_chart(fig_hazard, use_container_width=True)
+
+        # VOLUME CHART
+        st.markdown("### Market Volume by Contract")
+        fig_vol = go.Figure()
+        fig_vol.add_trace(go.Bar(
+            x=df["label"],
+            y=df["volume"],
+            marker_color="#ffa500",
+            hovertemplate="%{x}<br>Volume: $%{y:,.0f}<extra></extra>"
+        ))
+        fig_vol.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#0a0a0a",
+            plot_bgcolor="#0a0a0a",
+            yaxis=dict(title="Volume ($)", gridcolor="#1a1a1a"),
+            xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=80),
+            height=280,
+            font=dict(family="JetBrains Mono", size=11, color="#888"),
+        )
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+        # SURVIVAL FUNCTION
+        st.markdown("### Survival Function — S(t) = 1 - CDF(t)")
+        df_s = df.copy()
+        df_s["survival_pct"] = 100 - df_s["prob_pct"]
+        fig_surv = go.Figure()
+        fig_surv.add_trace(go.Scatter(
+            x=df_s["label"],
+            y=df_s["survival_pct"],
+            mode="lines+markers",
+            line=dict(color="#00ff88", width=2),
+            marker=dict(size=7, color="#00ff88"),
+            fill="tozeroy",
+            fillcolor="rgba(0,255,136,0.05)",
+            hovertemplate="%{x}<br>Survival: %{y:.2f}%<extra></extra>"
+        ))
+        fig_surv.update_layout(
+            template="plotly_dark",
+            paper_bgcolor="#0a0a0a",
+            plot_bgcolor="#0a0a0a",
+            yaxis=dict(title="Survival Probability (%)", range=[0, 105], gridcolor="#1a1a1a"),
+            xaxis=dict(title="", gridcolor="#1a1a1a", tickangle=-45),
+            margin=dict(l=40, r=20, t=10, b=80),
+            height=320,
+            font=dict(family="JetBrains Mono", size=11, color="#888"),
+        )
+        st.plotly_chart(fig_surv, use_container_width=True)
+
+        # RAW TABLE
+        with st.expander("RAW MARKET DATA"):
+            display_df = df[["label", "prob_pct", "volume", "liquidity", "best_bid", "best_ask", "spread"]].copy()
+            display_df.columns = ["Contract", "Prob %", "Volume $", "Liquidity $", "Best Bid", "Best Ask", "Spread"]
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    else:
+        st.error("No market data returned from Polymarket Gamma API. Market may be inactive or slug changed.")
+
+with right:
+    st.markdown("### INTEL FEED")
+    st.markdown("---")
+    if news:
+        for item in news:
+            source = f" — {item['source']}" if item['source'] else ""
+            st.markdown(f"""
+            <div class="news-item">
+                <a href="{item['link']}" target="_blank" style="color:#ff4b4b;text-decoration:none;font-size:0.85rem;">
+                    {item['title']}
+                </a>
+                <br><span style="color:#555;font-size:0.7rem;">{item['published']}{source}</span>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.warning("News feed unavailable.")
+
+    st.markdown("---")
+    st.markdown("### KEY DATES")
+    st.markdown("""
+    <div style="font-size:0.8rem;color:#888;line-height:1.8;">
+    ▸ Iran nuclear talks status<br>
+    ▸ IAEA inspection deadlines<br>
+    ▸ US carrier group deployments<br>
+    ▸ Congressional authorization votes<br>
+    ▸ Polymarket contract expiry: Jun 30
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("### METHODOLOGY")
+    st.markdown("""
+    <div style="font-size:0.75rem;color:#666;line-height:1.7;">
+    CDF: P(T≤t) from Polymarket order book mid-price.<br>
+    Hazard: h(t) = ΔP / (1 - P(t-1)), conditional instantaneous rate.<br>
+    Survival: S(t) = 1 - CDF(t).<br>
+    Volume: total matched dollars per contract.<br>
+    Spread: best ask - best bid, measures liquidity/uncertainty.<br>
+    All prices reflect real-money prediction market consensus.
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- AUTO REFRESH ---
+time.sleep(25)
+st.rerun()
