@@ -293,7 +293,7 @@ with left:
 with right:
     # Volume Intelligence
     if not df.empty:
-        st.markdown("### VOLUME INTELLIGENCE")
+        st.markdown("### Volume data")
         max_vol_row = df.loc[df['volume'].idxmax()]
         max_pmf_row = df.loc[df['pmf_pct'].idxmax()]
         vol_concentration = (max_vol_row['volume'] / df['volume'].sum() * 100) if df['volume'].sum() > 0 else 0
@@ -306,7 +306,7 @@ with right:
         </div>
         """, unsafe_allow_html=True)
     
-    st.markdown("### LIVE SIGNAL INTERCEPTS")
+    st.markdown("### Live news")
     if news:
         for item in news:
             source = f" — {item['source']}" if item['source'] else ""
