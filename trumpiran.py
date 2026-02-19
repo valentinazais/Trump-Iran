@@ -213,7 +213,6 @@ if not df.empty:
     m2.metric("TOTAL VOLUME", f"${total_vol:,.0f}")
     m3.metric("TOTAL LIQUIDITY", f"${total_liq:,.0f}")
     m4.metric("AVG SPREAD", f"{avg_spread:.4f}")
-    m5.markdown(f"**THREAT POSTURE**<br><span class='{risk_class}'>{risk_label}</span>", unsafe_allow_html=True)
 
     st.markdown("---")
 
