@@ -291,20 +291,6 @@ with left:
             st.dataframe(display_df.round(3), use_container_width=True, hide_index=True)
 
 with right:
-    # Volume Intelligence
-    if not df.empty:
-        st.markdown("### Volume data")
-        max_vol_row = df.loc[df['volume'].idxmax()]
-        max_pmf_row = df.loc[df['pmf_pct'].idxmax()]
-        vol_concentration = (max_vol_row['volume'] / df['volume'].sum() * 100) if df['volume'].sum() > 0 else 0
-        
-        st.markdown(f"""
-        <div class="insight-box">
-            Capital Concentration: <span class="insight-hl">{vol_concentration:.1f}%</span> deployed on <strong>{max_vol_row['label']}</strong> (${max_vol_row['volume']:,.0f}).<br><br>
-            Highest Marginal Risk: <strong>{max_pmf_row['label']}</strong> holds the highest isolated kinetic probability (<span class="insight-hl">+{max_pmf_row['pmf_pct']:.1f}%</span>).<br><br>
-            Spread Velocity: Tighter spreads indicate high institutional conviction. Current average is <span class="insight-hl">{avg_spread:.4f}</span>.
-        </div>
-        """, unsafe_allow_html=True)
     
     st.markdown("### Live news")
     if news:
@@ -321,6 +307,20 @@ with right:
             """, unsafe_allow_html=True)
     else:
         st.markdown("<div style='color:#8b949e;font-size:0.8rem;'>NO SIGNAL DETECTED.</div>", unsafe_allow_html=True)
-
+    # Volume Intelligence
+    if not df.empty:
+        st.markdown("### Volume data")
+        max_vol_row = df.loc[df['volume'].idxmax()]
+        max_pmf_row = df.loc[df['pmf_pct'].idxmax()]
+        vol_concentration = (max_vol_row['volume'] / df['volume'].sum() * 100) if df['volume'].sum() > 0 else 0
+        
+        st.markdown(f"""
+        <div class="insight-box">
+            Capital Concentration: <span class="insight-hl">{vol_concentration:.1f}%</span> deployed on <strong>{max_vol_row['label']}</strong> (${max_vol_row['volume']:,.0f}).<br><br>
+            Highest Marginal Risk: <strong>{max_pmf_row['label']}</strong> holds the highest isolated kinetic probability (<span class="insight-hl">+{max_pmf_row['pmf_pct']:.1f}%</span>).<br><br>
+            Spread Velocity: Tighter spreads indicate high institutional conviction. Current average is <span class="insight-hl">{avg_spread:.4f}</span>.
+        </div>
+        """, unsafe_allow_html=True)
+    
 time.sleep(25)
 st.rerun()
