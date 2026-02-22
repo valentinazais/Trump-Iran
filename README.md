@@ -1,7 +1,7 @@
 # US–Iran Strike Probability Dashboard
 
 Real-time Streamlit dashboard tracking the market-implied probability of US military strikes on Iran using Polymarket event data.  
-Constructs a discrete time distribution: PMF, CDF, Survival, and Hazard.
+Constructs a discrete time distribution: PMF, CDF, Survival, and Hazard : https://trumpiran.streamlit.app/
 
 All formulas use Unicode mathematical notation to ensure proper GitHub README rendering.
 
