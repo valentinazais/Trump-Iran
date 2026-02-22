@@ -1,229 +1,92 @@
-# US–Iran Strike Probability Dashboard
+US–Iran Strike Probability Dashboard
 
-Real-time Streamlit dashboard tracking market-implied probability of US military strikes on Iran using Polymarket event data. Computes full discrete time distribution (PMF, CDF, Survival, Hazard) and overlays live news flow.
+Real-time Streamlit dashboard tracking market-implied probability of US military strikes on Iran using Polymarket event data. Computes discrete time distribution (PMF, CDF, Survival, Hazard) and overlays live news.
 
----
+Overview
+- Data: Polymarket Gamma API (event slug: us-strikes-iran-by).
+- Auto refresh: 25 seconds.
+- Deadline: 2026-06-30 23:59:59 UTC.
+- News: Google News RSS (keyword-based query).
+- Output: Probability term structure + liquidity diagnostics.
 
-## Overview
-
-- **Data Source**: Polymarket Gamma API (`us-strikes-iran-by` event slug).
-- **Refresh Rate**: 25 seconds (auto rerun).
-- **Deadline**: 2026-06-30 23:59:59 UTC.
-- **News Feed**: Google News RSS query (`Trump Iran military strike`).
-
-Pipeline:
-
-1. Fetch event markets.
-2. Extract "Yes" outcome prices.
-3. Parse date labels → discrete time grid.
-4. Sort chronologically.
-5. Derive distribution metrics.
-6. Render probability structure + liquidity diagnostics.
-
----
-
-## Distribution Construction
+Distribution Construction
 
 Let:
+- t_i = ordered target dates  
+- F(t_i) = cumulative probability (CDF)  
+- p_i = probability mass (PMF)  
+- S(t_i) = survival probability  
+- h(t_i) = hazard rate  
 
-- \( t_i \) = ordered target dates  
-- \( F(t_i) \) = cumulative probability (CDF) from market  
-- \( p_i \) = probability mass at \( t_i \) (PMF)  
-- \( S(t_i) \) = survival probability  
-- \( h(t_i) \) = hazard rate  
+1) CDF  
+F(t_i) = market “Yes” price  
+F_pct(t_i) = 100 * F(t_i)
 
-### 1. CDF
+2) PMF (discrete difference)  
+p_1 = F(t_1)  
+p_i = max(0, F(t_i) - F(t_{i-1}))  
+p_pct(t_i) = 100 * p_i  
 
-Directly from market-implied “Yes” probability:
+3) Survival  
+S(t_i) = 1 - F(t_i)  
+S_pct(t_i) = 100 * S(t_i)
 
-\[
-F(t_i) = \text{price}_{Yes}(t_i)
-\]
+4) Hazard  
+h(t_1) = p_1  
+h(t_i) = p_i / S(t_{i-1})   if S(t_{i-1}) > 0.001  
+h(t_i) = 0                  otherwise  
+h_pct(t_i) = 100 * h(t_i)
 
-\[
-F_{pct}(t_i) = 100 \cdot F(t_i)
-\]
+Dashboard Components
 
----
+Top Metrics
+- Peak cumulative risk (max CDF)
+- Total volume
+- Total liquidity
+- Average bid-ask spread
 
-### 2. PMF (Discrete Mass)
+Main Charts
+- PMF: marginal probability by date (bar)
+- CDF: cumulative probability (line + area)
+- Survival: 1 − CDF (line)
+- Hazard: conditional probability (bar)
 
-First node:
-
-\[
-p_1 = F(t_1)
-\]
-
-Recursive difference:
-
-\[
-p_i = F(t_i) - F(t_{i-1})
-\]
-
-Clipped at zero:
-
-\[
-p_i = \max(0, p_i)
-\]
-
-\[
-p_{pct}(t_i) = 100 \cdot p_i
-\]
-
-Interpretation: incremental probability assigned specifically to that date bucket.
-
----
-
-### 3. Survival Function
-
-\[
-S(t_i) = 1 - F(t_i)
-\]
-
-\[
-S_{pct}(t_i) = 100 \cdot S(t_i)
-\]
-
-Probability event has **not** occurred by \( t_i \).
-
----
-
-### 4. Hazard Rate
-
-First node:
-
-\[
-h(t_1) = p_1
-\]
-
-Recursive definition:
-
-\[
-h(t_i) = 
-\begin{cases}
-\frac{p_i}{S(t_{i-1})}, & S(t_{i-1}) > 0.001 \\
-0, & \text{otherwise}
-\end{cases}
-\]
-
-\[
-h_{pct}(t_i) = 100 \cdot h(t_i)
-\]
-
-Interpretation: conditional probability of occurrence at \( t_i \) given survival until \( t_{i-1} \).
-
----
-
-## Dashboard Panels
-
-### Top Metrics
-
-- Peak Cumulative Risk (max CDF)
-- Total Volume
-- Total Liquidity
-- Average Bid–Ask Spread
-
-Risk Classification:
-
-| Max CDF | Label     |
-|---------|----------|
-| ≥ 50%   | HIGH     |
-| ≥ 20%   | ELEVATED |
-| < 20%   | LOW      |
-
----
-
-### Main Graphs
-
-1. **PMF (Bar)** — Marginal probability mass per date  
-2. **CDF (Line + Area)** — Accumulated probability  
-3. **Survival (Line)** — Remaining probability  
-4. **Hazard (Bar)** — Conditional event intensity  
-
-All rendered with Plotly (dark theme).
-
----
-
-### Raw Market Matrix
-
+Raw Market Table
 Columns:
+- Target Date
+- CDF (%)
+- PMF (%)
+- Survival (%)
+- Hazard (%)
+- Volume ($)
+- Spread
 
-| Target Date | CDF (%) | PMF (%) | Survival (%) | Hazard (%) | Volume ($) | Spread |
-|-------------|----------|----------|---------------|-------------|------------|--------|
-
-Displays rounded values, sorted chronologically.
-
----
-
-### Volume Intelligence
-
-Derived metrics:
-
-Let:
-
-- \( V_i \) = volume at node \( i \)
-- \( V_{tot} = \sum_i V_i \)
+Volume Intelligence
+Let V_i be volume at date i and V_tot = sum V_i.
 
 Capital concentration:
-
-\[
-\text{Concentration} = \frac{\max(V_i)}{V_{tot}} \cdot 100
-\]
+Concentration = max(V_i) / V_tot * 100
 
 Identifies:
+- Date with highest capital deployment
+- Date with highest marginal probability (PMF)
+- Average spread (liquidity proxy)
 
-- Highest deployed capital date  
-- Highest marginal risk node  
-- Average spread (proxy for conviction)
+Architecture
+- Data: Polymarket API (JSON)
+- Parsing: outcome extraction + date normalization
+- Math: discrete first differences + conditional ratios
+- UI: Streamlit
+- Charts: Plotly (dark theme)
+- Refresh loop: time.sleep(25) + st.rerun()
 
----
-
-### Live News Feed
-
-- Google RSS pull (cached 120s).
-- Sorted by publication time.
-- Displays relative time since publication.
-
----
-
-## Architecture
-
-| Layer | Function |
-|-------|----------|
-| Data | Polymarket Gamma API |
-| Parsing | JSON decode + fallback eval |
-| Time Grid | Date string normalization → datetime |
-| Math | Discrete difference operators |
-| UI | Streamlit + Plotly |
-| Styling | Custom CSS (JetBrains Mono, dark system theme) |
-| Refresh | `time.sleep(25)` → `st.rerun()` |
-
----
-
-## Run
-
-```bash
+Run
 pip install streamlit requests pandas plotly feedparser
 streamlit run app.py
-```
 
----
-
-## Dependencies
-
-- `streamlit`
-- `requests`
-- `pandas`
-- `plotly`
-- `feedparser`
-
----
-
-## Limitations
-
-- Depends on Polymarket event structure stability.
-- Assumes monotonic CDF across date buckets.
-- Date parsing limited to common month formats.
-- No smoothing between discrete nodes.
-- News query is keyword-based, not semantic-filtered.
+Limitations
+- Assumes monotonic cumulative probabilities.
+- Discrete buckets only (no interpolation).
 - Hazard unstable if survival approaches zero.
+- News feed is keyword-based, not semantic filtered.
+- Dependent on Polymarket API structure stability.
