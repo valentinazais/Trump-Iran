@@ -31,13 +31,13 @@ Let:
 
 Definition:
 
-$F(t_i) = \text{Yes market price at } t_i$
+`F(t_i) = Yes market price at t_i`
 
 Percentage form:
 
-$F_{\%}(t_i) = 100 \cdot F(t_i)$
+`F%(t_i) = 100 × F(t_i)`
 
-Interpretation: probability event has occurred **on or before** date `t_i`.
+Interpretation: probability the event has occurred **on or before** date `t_i`.
 
 ---
 
@@ -45,15 +45,15 @@ Interpretation: probability event has occurred **on or before** date `t_i`.
 
 First node:
 
-$p_1 = F(t_1)$
+`p_1 = F(t_1)`
 
 Recursive difference:
 
-$p_i = \max(0,\; F(t_i) - F(t_{i-1}))$
+`p_i = max(0, F(t_i) − F(t_{i−1}))`
 
 Percentage form:
 
-$p_{\%}(t_i) = 100 \cdot p_i$
+`p%(t_i) = 100 × p_i`
 
 Interpretation: marginal probability assigned **specifically** to bucket `t_i`.
 
@@ -63,13 +63,13 @@ Interpretation: marginal probability assigned **specifically** to bucket `t_i`.
 
 Definition:
 
-$S(t_i) = 1 - F(t_i)$
+`S(t_i) = 1 − F(t_i)`
 
 Percentage form:
 
-$S_{\%}(t_i) = 100 \cdot S(t_i)$
+`S%(t_i) = 100 × S(t_i)`
 
-Interpretation: probability event has **not** occurred by date `t_i`.
+Interpretation: probability the event has **not** occurred by date `t_i`.
 
 ---
 
@@ -77,20 +77,19 @@ Interpretation: probability event has **not** occurred by date `t_i`.
 
 First node:
 
-$h(t_1) = p_1$
+`h(t_1) = p_1`
 
 Recursive definition:
 
-$h(t_i) = \frac{p_i}{S(t_{i-1})}$  if  $S(t_{i-1}) > 0.001$  
-
-$h(t_i) = 0$  otherwise  
+`h(t_i) = p_i / S(t_{i−1})`  if  `S(t_{i−1}) > 0.001`  
+`h(t_i) = 0`                 otherwise  
 
 Percentage form:
 
-$h_{\%}(t_i) = 100 \cdot h(t_i)$
+`h%(t_i) = 100 × h(t_i)`
 
 Interpretation: conditional probability of occurrence at `t_i`  
-given survival until `t_{i-1}`.
+given survival until `t_{i−1}`.
 
 ---
 
@@ -141,11 +140,11 @@ Risk classification:
 Let:
 
 - `V_i` = volume at node `i`
-- `V_tot = \sum_i V_i`
+- `V_tot = sum(V_i)`
 
 Capital concentration:
 
-$\text{Concentration} = \frac{\max(V_i)}{V_{tot}} \cdot 100$
+`Concentration = (max(V_i) / V_tot) × 100`
 
 Identifies:
 
