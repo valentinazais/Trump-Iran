@@ -3,15 +3,7 @@
 Real-time Streamlit dashboard tracking the market-implied probability of US military strikes on Iran using Polymarket event data.  
 Constructs a discrete time distribution: PMF, CDF, Survival, and Hazard.
 
----
-
-## Overview
-
-- **Data Source**: Polymarket Gamma API (`us-strikes-iran-by`)
-- **Refresh Rate**: 25 seconds
-- **Deadline**: 2026-06-30 23:59:59 UTC
-- **News Feed**: Google News RSS (keyword-based)
-- **Output**: Probability term structure + liquidity diagnostics
+All formulas use Unicode mathematical notation to ensure proper GitHub README rendering.
 
 ---
 
@@ -19,11 +11,11 @@ Constructs a discrete time distribution: PMF, CDF, Survival, and Hazard.
 
 Let:
 
-- `t_i` = ordered target dates  
-- `F(t_i)` = cumulative probability (CDF)  
-- `p_i` = probability mass (PMF)  
-- `S(t_i)` = survival probability  
-- `h(t_i)` = hazard rate  
+- tᵢ = ordered target dates  
+- F(tᵢ) = cumulative probability (CDF)  
+- pᵢ = probability mass (PMF)  
+- S(tᵢ) = survival probability  
+- h(tᵢ) = hazard rate  
 
 ---
 
@@ -31,13 +23,13 @@ Let:
 
 Definition:
 
-`F(t_i) = Yes market price at t_i`
+F(tᵢ) = Yes market price at tᵢ  
 
 Percentage form:
 
-`F%(t_i) = 100 × F(t_i)`
+F%(tᵢ) = 100 × F(tᵢ)
 
-Interpretation: probability the event has occurred **on or before** date `t_i`.
+Interpretation: probability the event has occurred on or before date tᵢ.
 
 ---
 
@@ -45,17 +37,17 @@ Interpretation: probability the event has occurred **on or before** date `t_i`.
 
 First node:
 
-`p_1 = F(t_1)`
+p₁ = F(t₁)
 
 Recursive difference:
 
-`p_i = max(0, F(t_i) − F(t_{i−1}))`
+pᵢ = max(0, F(tᵢ) − F(tᵢ₋₁))
 
 Percentage form:
 
-`p%(t_i) = 100 × p_i`
+p%(tᵢ) = 100 × pᵢ
 
-Interpretation: marginal probability assigned **specifically** to bucket `t_i`.
+Interpretation: marginal probability assigned specifically to bucket tᵢ.
 
 ---
 
@@ -63,13 +55,13 @@ Interpretation: marginal probability assigned **specifically** to bucket `t_i`.
 
 Definition:
 
-`S(t_i) = 1 − F(t_i)`
+S(tᵢ) = 1 − F(tᵢ)
 
 Percentage form:
 
-`S%(t_i) = 100 × S(t_i)`
+S%(tᵢ) = 100 × S(tᵢ)
 
-Interpretation: probability the event has **not** occurred by date `t_i`.
+Interpretation: probability the event has not occurred by date tᵢ.
 
 ---
 
@@ -77,19 +69,18 @@ Interpretation: probability the event has **not** occurred by date `t_i`.
 
 First node:
 
-`h(t_1) = p_1`
+h(t₁) = p₁
 
 Recursive definition:
 
-`h(t_i) = p_i / S(t_{i−1})`  if  `S(t_{i−1}) > 0.001`  
-`h(t_i) = 0`                 otherwise  
+h(tᵢ) = pᵢ / S(tᵢ₋₁)   if S(tᵢ₋₁) > 0.001  
+h(tᵢ) = 0              otherwise  
 
 Percentage form:
 
-`h%(t_i) = 100 × h(t_i)`
+h%(tᵢ) = 100 × h(tᵢ)
 
-Interpretation: conditional probability of occurrence at `t_i`  
-given survival until `t_{i−1}`.
+Interpretation: conditional probability of occurrence at tᵢ given survival until tᵢ₋₁.
 
 ---
 
@@ -97,27 +88,27 @@ given survival until `t_{i−1}`.
 
 ## Top Metrics
 
-- Peak cumulative risk (max CDF)
+- Peak cumulative risk (max F)
 - Total volume
 - Total liquidity
 - Average bid–ask spread
 
 Risk classification:
 
-| Max CDF | Label     |
-|----------|-----------|
-| ≥ 50%    | HIGH      |
-| ≥ 20%    | ELEVATED  |
-| < 20%    | LOW       |
+| Max F | Label     |
+|--------|-----------|
+| ≥ 50%  | HIGH      |
+| ≥ 20%  | ELEVATED  |
+| < 20%  | LOW       |
 
 ---
 
 ## Main Charts
 
-- **PMF** — marginal probability per date (bar chart)
-- **CDF** — cumulative probability (line + area)
-- **Survival** — remaining probability (line)
-- **Hazard** — conditional event intensity (bar chart)
+- PMF — marginal probability per date (bar chart)
+- CDF — cumulative probability (line + area)
+- Survival — remaining probability (line)
+- Hazard — conditional event intensity (bar chart)
 
 ---
 
@@ -126,10 +117,10 @@ Risk classification:
 | Column        | Description |
 |---------------|------------|
 | Target Date   | Event bucket date |
-| CDF (%)       | Cumulative probability |
-| PMF (%)       | Marginal probability |
-| Survival (%)  | 1 − CDF |
-| Hazard (%)    | Conditional probability |
+| CDF (%)       | F%(tᵢ) |
+| PMF (%)       | p%(tᵢ) |
+| Survival (%)  | S%(tᵢ) |
+| Hazard (%)    | h%(tᵢ) |
 | Volume ($)    | Capital deployed |
 | Spread        | Bid–ask spread |
 
@@ -139,12 +130,12 @@ Risk classification:
 
 Let:
 
-- `V_i` = volume at node `i`
-- `V_tot = sum(V_i)`
+- Vᵢ = volume at node i  
+- Vₜₒₜ = Σ Vᵢ  
 
 Capital concentration:
 
-`Concentration = (max(V_i) / V_tot) × 100`
+Concentration = (max(Vᵢ) / Vₜₒₜ) × 100
 
 Identifies:
 
@@ -163,7 +154,7 @@ Identifies:
 | Math       | Discrete first differences + conditional ratios |
 | UI         | Streamlit |
 | Charts     | Plotly (dark theme) |
-| Refresh    | `time.sleep(25)` → `st.rerun()` |
+| Refresh    | time.sleep(25) → st.rerun() |
 
 ---
 
